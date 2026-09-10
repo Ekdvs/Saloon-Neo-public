@@ -1,0 +1,6 @@
+-- AlterEnum
+ALTER TYPE "UserStatus" ADD VALUE 'BANNED';
+
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "lastLogin" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "privileges" TEXT[] DEFAULT ARRAY[]::TEXT[];
