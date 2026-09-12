@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
+import { request } from "node:http";
 
 export const requireAuth = async (request: NextRequest) =>{
   const auth = await getCurrentUser(request);
@@ -12,6 +13,7 @@ export const requireAuth = async (request: NextRequest) =>{
       response: null,
     };
   }
+
 
   switch (auth.error) {
     case "AUTHENTICATION_REQUIRED":
@@ -85,3 +87,18 @@ export const requireAuth = async (request: NextRequest) =>{
       };
   }
 }
+
+export const isPrivileged = async (
+  request: NextRequest,
+  requiredPrivileges: string[],
+) => {
+  const auth = await getCurrentUser(request);
+
+  if (!auth.user) {
+    return false;
+  }
+
+  return requiredPrivileges.some((privilege) =>
+    auth.user.privileges.includes(privilege),
+  );
+};

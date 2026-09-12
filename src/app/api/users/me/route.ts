@@ -14,14 +14,13 @@ export const GET = async(request: NextRequest) =>{
       return response;
     }
 
-    if (!user) { 
-      return errorResponse( 
-        "Authentication required", 
-        null, 
-        401, 
-      ); 
+    if (!user) {
+      return errorResponse(
+        "Authentication required",
+        null,
+        401,
+      );
     }
-
 
     return successResponse(
       "User retrieved successfully",
