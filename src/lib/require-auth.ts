@@ -2,7 +2,6 @@ import { NextRequest } from "next/server";
 
 import { getCurrentUser } from "@/lib/auth";
 import { errorResponse } from "@/lib/api-response";
-import { request } from "node:http";
 
 export const requireAuth = async (request: NextRequest) =>{
   const auth = await getCurrentUser(request);
@@ -92,13 +91,32 @@ export const isPrivileged = async (
   request: NextRequest,
   requiredPrivileges: string[],
 ) => {
-  const auth = await getCurrentUser(request);
+  const auth = await requireAuth(request);
 
   if (!auth.user) {
-    return false;
+    return {
+      authorized: false,
+      response: auth.response,
+    };
   }
 
-  return requiredPrivileges.some((privilege) =>
+  const authorized = requiredPrivileges.some((privilege) =>
     auth.user.privileges.includes(privilege),
   );
+
+  if (!authorized) {
+    return {
+      authorized: false,
+      response: errorResponse(
+        "Forbidden. You do not have permission to perform this action.",
+        null,
+        403,
+      ),
+    };
+  }
+
+  return {
+    authorized: true,
+    response: null,
+  };
 };

@@ -1,19 +1,19 @@
 import { successResponse, errorResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
-import { requireAuth } from "@/lib/require-auth";
+import { isPrivileged } from "@/lib/require-auth";
 import { NextRequest } from "next/server";
 
-export const GET = async(request: NextRequest)=> {
+export const GET = async (request: NextRequest) => {
   try {
-    
-    const { user, response } = await requireAuth(request);
+    const { authorized, response } = await isPrivileged(request, [
+      "user:read",
+    ]);
 
-    if (response) {
+    if (!authorized) {
       return response;
     }
 
-    if(user.privileges.includes("user:read")){
-          const users = await prisma.user.findMany({
+    const users = await prisma.user.findMany({
       select: {
         id: true,
         email: true,
@@ -28,7 +28,6 @@ export const GET = async(request: NextRequest)=> {
         createdAt: true,
         updatedAt: true,
         lastLogin: true,
-        password:false,
       },
       orderBy: {
         createdAt: "desc",
@@ -40,24 +39,15 @@ export const GET = async(request: NextRequest)=> {
       {
         users,
       },
-      200
+      200,
     );
-    }
-    else{
-      return errorResponse(
-      "Failed to fetch users",
-      null,
-      500
-    );
-    }
-
   } catch (error) {
     console.error("GET /api/users error:", error);
 
     return errorResponse(
       "Failed to fetch users",
       null,
-      500
+      500,
     );
   }
-}
+};
