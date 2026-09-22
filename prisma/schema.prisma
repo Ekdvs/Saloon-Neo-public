@@ -20,7 +20,7 @@ model User {
   firstName     String
   lastName      String?
   phone         String?    @unique
-  avatar        String?
+  avatar        String     @default("/images/default-profile.png")
 
   role          UserRole   @default(CUSTOMER)
   status        UserStatus @default(INACTIVE)

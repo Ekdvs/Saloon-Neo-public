@@ -81,15 +81,9 @@ export const registerSchema = z
         "Password must contain a special character",
       ),
 
-    confirmPassword: z.string(),
+    
   })
-  .refine(
-    (data) => data.password === data.confirmPassword,
-    {
-      message: "Passwords do not match",
-      path: ["confirmPassword"],
-    },
-  );
+  
 
 export type RegisterInput = z.infer<typeof registerSchema>;
 
