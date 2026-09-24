@@ -10,6 +10,7 @@ import {
   requireAuth,
 } from "@/lib/require-auth";
 import {
+    UpdateUserInput,
   updateUserSchema,
   userIdSchema,
 } from "@/lib/validations/user.validation";
@@ -154,7 +155,7 @@ export const PATCH = async (
       );
     }
 
-    let body: unknown;
+    let body:UpdateUserInput;
 
     try {
       body = await request.json();

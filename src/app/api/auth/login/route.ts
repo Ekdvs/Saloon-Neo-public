@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import bcrypt from "bcryptjs";
 
-import { loginSchema } from "@/lib/validations/auth.validation";
+import { LoginInput, loginSchema } from "@/lib/validations/auth.validation";
 import {
   generateAccessToken,
   generateRefreshToken,
@@ -17,7 +17,17 @@ import prisma from "@/lib/prisma";
 
 export const POST = async(request: NextRequest) =>{
   try {
-    const body = await request.json();
+    let body:LoginInput;
+
+    try {
+      body = await request.json();
+    } catch {
+      return errorResponse(
+        "Invalid request body",
+        null,
+        400,
+      );
+    }
 
     const validation = loginSchema.safeParse(body);
 

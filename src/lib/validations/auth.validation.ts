@@ -40,11 +40,15 @@ export const registerSchema = z
       .or(z.literal("")),
 
     email: z
-      .string()
+      .email("Invalid email address")
       .trim()
       .toLowerCase()
-      .email("Invalid email address")
-      .max(254, "Email address is too long"),
+      .max(254, "Email address is too long")
+      .regex(
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+        "Invalid email address",
+      ),
+
 
     phone: z
       .string()

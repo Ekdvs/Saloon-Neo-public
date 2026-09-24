@@ -2,7 +2,7 @@ import { NextRequest } from "next/server";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
-import { registerSchema } from "@/lib/validations/auth.validation";
+import { RegisterInput, registerSchema } from "@/lib/validations/auth.validation";
 import {
   successResponse,
   errorResponse,
@@ -18,7 +18,7 @@ const VERIFICATION_TOKEN_TTL = 15 * 60 * 1000; // 15 minutes
 export const POST = async(request: NextRequest) => {
   try {
 
-    let body: unknown;
+    let body:RegisterInput;
 
     try {
       body = await request.json();
@@ -30,6 +30,7 @@ export const POST = async(request: NextRequest) => {
       );
     }
 
+    //validate the body using zod
     const validation = registerSchema.safeParse(body);
 
     if (!validation.success) {
