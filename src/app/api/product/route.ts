@@ -1,10 +1,11 @@
 import { errorResponse, successResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { isPrivileged } from "@/lib/require-auth";
+import { paginationSchema } from "@/lib/validations/pagination.validation";
 import {  createProductSchema } from "@/lib/validations/product.validation";
 import { NextRequest } from "next/server";
 
-
+//add products
 export const POST = async (request: NextRequest) => {
     try{
 
@@ -88,21 +89,72 @@ export const POST = async (request: NextRequest) => {
 
 }
 
+//get all products for admin
 export const GET = async (request: NextRequest) => {
     try {
-        const { authorized, response } = await isPrivileged(request, ['product:create']);
 
-        if (!authorized) {
+        const {authorized, response} = await isPrivileged(request, ['product:read']);
+
+        if(!authorized){
             return response;
         }
 
-        const products = await prisma.product.findMany();
+        //add pagination and filtering logic here if needed in the future
+        const searchParams = Object.fromEntries(request.nextUrl.searchParams.entries());
+
+        const result = paginationSchema.safeParse(searchParams);
+
+        if(!result.success){
+            return errorResponse(
+                "Pagination validation failed",
+                result.error.flatten().fieldErrors,
+                422
+            );
+        }
+
+        const { page, limit } = result.data;
+
+        const skip = (page - 1) * limit;
+
+        //get all products with pagination
+        const[products, totalProducts] = await Promise.all(
+            [
+                prisma.product.findMany({
+                    skip,
+                    take:limit,
+                    orderBy:{
+                        createdAt: 'desc'
+                    }
+                }),
+                prisma.product.count()
+            ]
+        )
+
+        const totalPages = Math.ceil(totalProducts / limit);
+
+        if(page > totalPages && totalProducts > 0){
+            return errorResponse(
+                "Page number exceeds total pages",
+                null,
+                400
+            );
+        }
 
         return successResponse(
-            "Products retrieved successfully",
-            products,
-            200
-        );
+            "Products fetched successfully",
+            {
+                products,
+                pagination: {
+                    currentPage: page,
+                    pageSize: limit,
+                    totalPages,
+                    totalProducts,
+                    hasNextPage: page < totalPages,
+                    hasPreviousPage: page > 1
+                }
+            }
+        )
+            
     } catch (error) {
         console.error("Error in GET /api/product:", error);
         return errorResponse(
