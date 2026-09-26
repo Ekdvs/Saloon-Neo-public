@@ -1,6 +1,14 @@
-import { compare } from 'bcrypt';
 import {z} from 'zod';
-import de from 'zod/v4/locales/de.cjs';
+
+export const productIdSchema = z.object(
+    {
+        id: z.string()
+            .trim()
+            .uuid('Invalid product ID')
+    }
+)
+
+export type ProductIdInput = z.infer<typeof productIdSchema>;
 
 export const productStatusSchema = z.enum(
     [
