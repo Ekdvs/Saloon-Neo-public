@@ -1,6 +1,8 @@
 import { errorResponse, successResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
+import { isPrivileged } from "@/lib/require-auth";
 import { productIdSchema } from "@/lib/validations/product.validation";
+import { NextRequest } from "next/server";
 
 
 
@@ -10,7 +12,7 @@ interface RouteContext {
     }>;
 }
 //get product by id
-export const GET = async (request: Request, { params }: RouteContext) => {
+export const GET = async (request: NextRequest, { params }: RouteContext) => {
     try{
         const { id } = await params;
         //console.log("Fetching product with ID:", id);
@@ -78,9 +80,17 @@ export const GET = async (request: Request, { params }: RouteContext) => {
 }
 
 //delete product by id
-export const DELETE = async (request:Request, { params }: RouteContext) => {
+export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
     try{
+        const { authorized, response } = await isPrivileged(request, ['product:delete']);
+
+        if (!authorized) {
+            return response;
+        }
+
         const { id } = await params;
+
+        
         const validation = productIdSchema.safeParse({ id });
 
         if (!validation.success) {
@@ -141,3 +151,5 @@ export const DELETE = async (request:Request, { params }: RouteContext) => {
         );
     }
 }
+
+//update product by id
