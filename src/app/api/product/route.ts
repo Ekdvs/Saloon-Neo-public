@@ -2,25 +2,25 @@ import { errorResponse, successResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { isPrivileged } from "@/lib/require-auth";
 import { paginationSchema } from "@/lib/validations/pagination.validation";
-import {  createProductSchema } from "@/lib/validations/product.validation";
+import { createProductSchema } from "@/lib/validations/product.validation";
 import { NextRequest } from "next/server";
 
 //add products
 export const POST = async (request: NextRequest) => {
-    try{
+    try {
 
-        const {authorized, response} = await isPrivileged(request, ['product:create']);
+        const { authorized, response } = await isPrivileged(request, ['product:create']);
 
-        if(!authorized){
+        if (!authorized) {
             return response;
         }
 
-        let body:unknown;
+        let body: unknown;
 
-        try{
+        try {
             body = await request.json();
         }
-        catch{
+        catch {
             return errorResponse(
                 "Invalid request body",
                 null,
@@ -30,7 +30,7 @@ export const POST = async (request: NextRequest) => {
         //validate the request body using zod
         const validation = createProductSchema.safeParse(body);
 
-        if(!validation.success){
+        if (!validation.success) {
             return errorResponse(
                 "Validation failed",
                 validation.error.flatten().fieldErrors,
@@ -47,7 +47,7 @@ export const POST = async (request: NextRequest) => {
             }
         )
 
-        if(existingProduct){
+        if (existingProduct) {
             return errorResponse(
                 "Product with the same SKU already exists",
                 null,
@@ -96,9 +96,9 @@ export const POST = async (request: NextRequest) => {
 export const GET = async (request: NextRequest) => {
     try {
 
-        const {authorized, response} = await isPrivileged(request, ['product:read']);
+        const { authorized, response } = await isPrivileged(request, ['product:read']);
 
-        if(!authorized){
+        if (!authorized) {
             return response;
         }
 
@@ -107,7 +107,7 @@ export const GET = async (request: NextRequest) => {
 
         const result = paginationSchema.safeParse(searchParams);
 
-        if(!result.success){
+        if (!result.success) {
             return errorResponse(
                 "Pagination validation failed",
                 result.error.flatten().fieldErrors,
@@ -119,24 +119,34 @@ export const GET = async (request: NextRequest) => {
 
         const skip = (page - 1) * limit;
 
+        //skip delete products from the list
+        const where = {
+            status: {
+                not: "DELETED" as const
+            }
+        };
+
         //get all products with pagination
-        const[products, totalProducts] = await Promise.all(
+        const [products, totalProducts] = await Promise.all(
             [
                 prisma.product.findMany({
                     skip,
-                    take:limit,
-                    include:{media:true},
-                    orderBy:{
+                    take: limit,
+                    where,
+                    include: { media: true },
+                    orderBy: {
                         createdAt: 'desc'
                     }
                 }),
-                prisma.product.count()
+                prisma.product.count(
+                    {where}
+                )
             ]
         )
 
         const totalPages = Math.ceil(totalProducts / limit);
 
-        if(page > totalPages && totalProducts > 0){
+        if (page > totalPages && totalProducts > 0) {
             return errorResponse(
                 "Page number exceeds total pages",
                 null,
@@ -158,7 +168,7 @@ export const GET = async (request: NextRequest) => {
                 }
             }
         )
-            
+
     } catch (error) {
         console.error("Error in GET /api/product:", error);
         return errorResponse(

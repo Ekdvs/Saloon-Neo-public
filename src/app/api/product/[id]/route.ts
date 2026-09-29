@@ -76,3 +76,68 @@ export const GET = async (request: Request, { params }: RouteContext) => {
         );
     }
 }
+
+//delete product by id
+export const DELETE = async (request:Request, { params }: RouteContext) => {
+    try{
+        const { id } = await params;
+        const validation = productIdSchema.safeParse({ id });
+
+        if (!validation.success) {
+            return errorResponse(
+                "Invalid product ID",
+                validation.error,
+                400
+            );
+        }
+
+        const productId = validation.data.id;
+
+        const product = await prisma.product.findUnique({
+            where: {
+                id: productId
+            },
+            
+        });
+
+        if (!product) {
+            return errorResponse(
+                "Product not found",
+                null,
+                404
+            );
+        }
+
+        if (product.status === "DELETED") {
+            return errorResponse(
+                "Product has already been deleted",
+                null,
+                410
+            );
+        }
+
+        // Update the product status to "DELETED"
+        const deletedProduct = await prisma.product.update({
+            where: {
+                id: productId
+            },
+            data: {
+                status: "DELETED"
+            }
+        });
+
+        return successResponse(
+            "Product deleted successfully",
+            deletedProduct,
+            200
+        );
+
+    }catch(error){
+        console.error("Error in Delete /api/product/[id]:", error);
+        return errorResponse(
+            "An unexpected error occurred",
+            error,
+            500
+        );
+    }
+}
