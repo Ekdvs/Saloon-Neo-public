@@ -153,3 +153,38 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
 }
 
 //update product by id
+export const PUT  = async (request: NextRequest, { params }: RouteContext) => {
+    try {
+
+        const { authorized, response } = await isPrivileged(request, ['product:update']);
+
+        if (!authorized) {
+            return response;
+        }
+
+        const { id } = await params;
+
+        const validation = productIdSchema.safeParse({ id });
+
+        if (!validation.success) {
+            return errorResponse(
+                "Invalid product ID",
+                validation.error,
+                400
+            );
+        }
+
+        const productId = validation.data.id;
+
+        console.log("Updating product with ID:", productId);
+
+    }
+    catch (error) {
+        console.error("Error in PUT /api/product/[id]:", error);
+        return errorResponse(
+            "An unexpected error occurred",
+            error,
+            500
+        );
+    }
+}
