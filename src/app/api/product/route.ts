@@ -66,6 +66,9 @@ export const POST = async (request: NextRequest) => {
                     media: {
                         create: media
                     }
+                },
+                include: {
+                    media: true
                 }
             }
         )
@@ -122,6 +125,7 @@ export const GET = async (request: NextRequest) => {
                 prisma.product.findMany({
                     skip,
                     take:limit,
+                    include:{media:true},
                     orderBy:{
                         createdAt: 'desc'
                     }

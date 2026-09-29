@@ -29,9 +29,11 @@ export const GET = async (request: Request, { params }: RouteContext) => {
         const productId = validation.data.id;
 
         const product = await prisma.product.findUnique({
+            
             where: {
                 id: productId
-            }
+            },
+            include:{media:true},
         }); 
 
         if (!product) {
