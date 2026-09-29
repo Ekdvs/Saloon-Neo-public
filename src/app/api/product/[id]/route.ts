@@ -1,7 +1,8 @@
+import { Prisma } from "@/generated/prisma/client";
 import { errorResponse, successResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { isPrivileged } from "@/lib/require-auth";
-import { productIdSchema } from "@/lib/validations/product.validation";
+import { productIdSchema, UpdateProductInput, updateProductSchema } from "@/lib/validations/product.validation";
 import { NextRequest } from "next/server";
 
 
@@ -152,39 +153,156 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
     }
 }
 
-//update product by id
-export const PUT  = async (request: NextRequest, { params }: RouteContext) => {
+// Update product by ID
+export const PUT = async (
+    request: NextRequest,
+    { params }: RouteContext
+) => {
     try {
-
-        const { authorized, response } = await isPrivileged(request, ['product:update']);
+        // Check authorization
+        const { authorized, response } = await isPrivileged(
+            request,
+            ["product:update"]
+        );
 
         if (!authorized) {
             return response;
         }
 
+        // Get product ID
         const { id } = await params;
 
-        const validation = productIdSchema.safeParse({ id });
+        // Validate product ID
+        const idValidation = productIdSchema.safeParse({ id });
 
-        if (!validation.success) {
+        if (!idValidation.success) {
             return errorResponse(
                 "Invalid product ID",
-                validation.error,
+                idValidation.error.flatten().fieldErrors,
                 400
             );
         }
 
-        const productId = validation.data.id;
+        const productId = idValidation.data.id;
 
-        console.log("Updating product with ID:", productId);
+        // Parse request body
+        let body: unknown;
 
-    }
-    catch (error) {
-        console.error("Error in PUT /api/product/[id]:", error);
+        try {
+            body = await request.json();
+        } catch {
+            return errorResponse(
+                "Invalid request body",
+                null,
+                400
+            );
+        }
+
+        // Validate update data
+        const validationData = updateProductSchema.safeParse(body);
+
+        if (!validationData.success) {
+            return errorResponse(
+                "Invalid product data",
+                validationData.error.flatten().fieldErrors,
+                422
+            );
+        }
+
+        const data = validationData.data;
+
+        // Find existing product
+        const existingProduct = await prisma.product.findUnique({
+            where: {
+                id: productId,
+            },
+        });
+
+        if (!existingProduct) {
+            return errorResponse(
+                "Product not found",
+                null,
+                404
+            );
+        }
+
+        // Do not allow updating deleted products
+        if (existingProduct.status === "DELETED") {
+            return errorResponse(
+                "Cannot update a deleted product",
+                null,
+                410
+            );
+        }
+
+        // Check SKU uniqueness if SKU is being changed
+        if (
+            data.sku !== undefined &&
+            data.sku !== existingProduct.sku
+        ) {
+            const existingSku = await prisma.product.findUnique({
+                where: {
+                    sku: data.sku,
+                },
+            });
+
+            if (existingSku) {
+                return errorResponse(
+                    "Product with the same SKU already exists",
+                    null,
+                    409
+                );
+            }
+        }
+
+        // Separate media from normal product fields
+        const { media, ...productData } = data;
+
+        // Prisma update data
+        const updateData: Prisma.ProductUpdateInput = {
+            ...productData,
+        };
+
+        // Stock = 0 → automatically INACTIVE
+        if (data.stock === 0) {
+            updateData.status = "INACTIVE";
+        }
+
+        // Update media only when media is provided
+        if (media !== undefined) {
+            updateData.media = {
+                deleteMany: {},
+                create: media,
+            };
+        }
+
+        // Update product
+        const updatedProduct = await prisma.product.update({
+            where: {
+                id: productId,
+            },
+            data: updateData,
+            include: {
+                media: true,
+            },
+        });
+
+        return successResponse(
+            "Product updated successfully",
+            updatedProduct,
+            200
+        );
+
+    } catch (error) {
+        console.error(
+            "Error in PUT /api/product/[id]:",
+            error
+        );
+
         return errorResponse(
             "An unexpected error occurred",
             error,
             500
         );
     }
-}
+};
