@@ -1,96 +1,153 @@
+import { NextRequest } from "next/server";
+
 import { errorResponse, successResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { isPrivileged } from "@/lib/require-auth";
+import {
+  createProductSchema,
+} from "@/lib/validations/product.validation";
 import { paginationSchema } from "@/lib/validations/pagination.validation";
-import { createProductSchema } from "@/lib/validations/product.validation";
-import { NextRequest } from "next/server";
+import {
+  deleteManyFromS3,
+  getPublicUrl,
+  headMedia,
+} from "@/lib/s3";
+import {
+  MEDIA_KEY_REGEX,
+  getMediaTypeFromKey,
+  getSizeLimit,
+} from "@/lib/product-media";
 
-//add products
+export const runtime = "nodejs";
+
+// Pull valid media keys out of a raw body so they can be cleaned up on failure.
+const extractKeys = (body: unknown): string[] => {
+  if (!body || typeof body !== "object") return [];
+  const media = (body as { media?: unknown }).media;
+  if (!Array.isArray(media)) return [];
+
+  return media
+    .map((item) => (item as { key?: unknown })?.key)
+    .filter(
+      (key): key is string =>
+        typeof key === "string" && MEDIA_KEY_REGEX.test(key),
+    );
+};
+
+// ---------------------------------------------------------------
+// POST /api/product  (JSON: product fields + uploaded media keys)
+// ---------------------------------------------------------------
 export const POST = async (request: NextRequest) => {
+  let keysToCleanup: string[] = [];
+  let committed = false;
+
+  try {
+    const { authorized, response } = await isPrivileged(request, [
+      "product:create",
+    ]);
+    if (!authorized) return response;
+
+    let body: unknown;
     try {
-
-        const { authorized, response } = await isPrivileged(request, ['product:create']);
-
-        if (!authorized) {
-            return response;
-        }
-
-        let body: unknown;
-
-        try {
-            body = await request.json();
-        }
-        catch {
-            return errorResponse(
-                "Invalid request body",
-                null,
-                400
-            );
-        }
-        //validate the request body using zod
-        const validation = createProductSchema.safeParse(body);
-
-        if (!validation.success) {
-            return errorResponse(
-                "Validation failed",
-                validation.error.flatten().fieldErrors,
-                422
-            );
-        }
-
-        //check if product with the same SKU already exists
-        const existingProduct = await prisma.product.findUnique(
-            {
-                where: {
-                    sku: validation.data.sku
-                }
-            }
-        )
-
-        if (existingProduct) {
-            return errorResponse(
-                "Product with the same SKU already exists",
-                null,
-                409
-            );
-        }
-
-        // Separate media from product fields
-        const { media, ...productData } = validation.data;
-
-        // Create the new product
-        const newProduct = await prisma.product.create(
-            {
-                data: {
-                    ...productData,
-                    media: {
-                        create: media
-                    }
-                },
-                include: {
-                    media: true
-                }
-            }
-        )
-
-        return successResponse(
-            "Product created successfully",
-            newProduct,
-            201
-        );
-
+      body = await request.json();
+    } catch {
+      return errorResponse("Invalid JSON body", null, 400);
     }
-    catch (error) {
-        console.error("Error in POST /api/product:", error);
+
+    // From here on, any failure removes the uploaded files from S3.
+    keysToCleanup = extractKeys(body);
+
+    const validation = createProductSchema.safeParse(body);
+    if (!validation.success) {
+      return errorResponse(
+        "Validation failed",
+        validation.error.flatten().fieldErrors,
+        422,
+      );
+    }
+
+    const { media, ...productData } = validation.data;
+
+    // Duplicate keys
+    const keys = media.map((item) => item.key);
+    if (new Set(keys).size !== keys.length) {
+      return errorResponse("Duplicate media files are not allowed", null, 400);
+    }
+
+    // Verify every file really exists in S3 and respects size limits
+    const verifiedMedia: { key: string; type: "IMAGE" | "VIDEO" }[] = [];
+
+    for (const key of keys) {
+      const type = getMediaTypeFromKey(key);
+      const head = await headMedia(key);
+
+      if (!type || !head) {
         return errorResponse(
-            "An unexpected error occurred",
-            error,
-            500
+          "One or more media files were not uploaded correctly",
+          null,
+          400,
         );
+      }
 
+      if (head.size > getSizeLimit(type)) {
+        return errorResponse("A media file exceeds the size limit", null, 400);
+      }
+
+      verifiedMedia.push({ key, type });
     }
 
-}
+    // Duplicate SKU
+    const existing = await prisma.product.findUnique({
+      where: { sku: productData.sku },
+      select: { id: true },
+    });
+
+    if (existing) {
+      return errorResponse(
+        "Product with the same SKU already exists",
+        { sku: ["SKU already exists"] },
+        409,
+      );
+    }
+
+    const newProduct = await prisma.product.create({
+      data: {
+        ...productData,
+        media: {
+          create: verifiedMedia.map((item, index) => ({
+            url: getPublicUrl(item.key),
+            type: item.type,
+            sortOrder: index,
+          })),
+        },
+      },
+      include: {
+        media: { orderBy: { sortOrder: "asc" } },
+      },
+    });
+
+    committed = true;
+
+    return successResponse("Product created successfully", newProduct, 201);
+  } catch (error) {
+    console.error("Error in POST /api/product:", error);
+
+    // Race condition on unique SKU
+    if ((error as { code?: string })?.code === "P2002") {
+      return errorResponse(
+        "Product with the same SKU already exists",
+        { sku: ["SKU already exists"] },
+        409,
+      );
+    }
+
+    return errorResponse("An unexpected error occurred", null, 500);
+  } finally {
+    if (!committed) {
+      await deleteManyFromS3(keysToCleanup);
+    }
+  }
+};
 
 //get all products for admin
 export const GET = async (request: NextRequest) => {

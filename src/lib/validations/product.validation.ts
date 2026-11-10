@@ -1,202 +1,131 @@
-import { z } from 'zod';
+import { z } from "zod";
 
-// Product ID
+import { MAX_FILES, MEDIA_KEY_REGEX } from "@/lib/product-media";
+
+// Reusable pieces
+const optionalText = (max: number, label: string) =>
+  z
+    .string()
+    .trim()
+    .max(max, `${label} cannot exceed ${max} characters`)
+    .nullish()
+    .transform((value) => (value ? value : null));
+
+const priceField = z
+  .number({ message: "Price must be a number" })
+  .min(0, "Price cannot be negative")
+  .max(1_000_000, "Price cannot exceed 1,000,000");
+
+const altNameField = z
+  .array(
+    z
+      .string()
+      .trim()
+      .min(1, "Alternative name cannot be empty")
+      .max(200, "Alternative name cannot exceed 200 characters"),
+  )
+  .max(10, "Cannot have more than 10 alternative names");
+
+// IDs / enums
 export const productIdSchema = z.object({
-    id: z
-        .string()
-        .trim()
-        .uuid('Invalid product ID')
+  id: z.string().trim().uuid("Invalid product ID"),
 });
-
 export type ProductIdInput = z.infer<typeof productIdSchema>;
 
-// Product Status
-export const productStatusSchema = z.enum([
-    'ACTIVE',
-    'INACTIVE',
-    'DELETED'
-]);
-
+export const productStatusSchema = z.enum(["ACTIVE", "INACTIVE", "DELETED"]);
 export type ProductStatus = z.infer<typeof productStatusSchema>;
 
-// Media Type
-export const mediaTypeSchema = z.enum([
-    'IMAGE',
-    'VIDEO'
-]);
-
+export const mediaTypeSchema = z.enum(["IMAGE", "VIDEO"]);
 export type MediaType = z.infer<typeof mediaTypeSchema>;
 
-// Product Media
-export const productMediaSchema = z.object({
-    url: z
-        .string()
-        .trim()
-        .url('Media URL must be a valid URL'),
-
-    type: mediaTypeSchema
+// Presigned upload request
+export const uploadUrlRequestSchema = z.object({
+  files: z
+    .array(
+      z.object({
+        contentType: z.string().trim().min(1),
+        size: z.number().int().positive(),
+      }),
+    )
+    .min(1, "At least one file is required")
+    .max(MAX_FILES, `Maximum ${MAX_FILES} files are allowed`),
 });
+export type UploadUrlRequest = z.infer<typeof uploadUrlRequestSchema>;
 
-export type ProductMedia = z.infer<typeof productMediaSchema>;
-
-
-// Create Product
-export const createProductSchema = z.object({
+// Create product
+export const createProductSchema = z
+  .object({
     sku: z
-        .string()
-        .trim()
-        .min(1, 'SKU is required')
-        .max(100, 'SKU cannot exceed 100 characters'),
+      .string()
+      .trim()
+      .min(1, "SKU is required")
+      .max(100, "SKU cannot exceed 100 characters"),
 
     name: z
-        .string()
-        .trim()
-        .min(10, 'Product name is required')
-        .max(200, 'Product name cannot exceed 200 characters'),
+      .string()
+      .trim()
+      .min(3, "Product name must be at least 3 characters")
+      .max(200, "Product name cannot exceed 200 characters"),
 
-    altName: z
-        .array(
-            z
-                .string()
-                .trim()
-                .min(1, 'Alternative name cannot be empty')
-                .max(200, 'Alternative name cannot exceed 200 characters')
-        )
-        .max(10, 'Cannot have more than 10 alternative names')
-        .default([]),
+    altName: altNameField.default([]),
 
-    description: z
-        .string()
-        .trim()
-        .min(10, 'Product description is required')
-        .max(1000, 'Product description cannot exceed 1000 characters')
-        .default(''),
+    description: optionalText(1000, "Description"),
 
     stock: z
-        .number()
-        .int('Stock must be an integer')
-        .min(0, 'Stock cannot be negative')
-        .max(1000000, 'Stock cannot exceed 1,000,000')
-        .default(0),
+      .number({ message: "Stock must be a number" })
+      .int("Stock must be an integer")
+      .min(0, "Stock cannot be negative")
+      .max(1_000_000, "Stock cannot exceed 1,000,000")
+      .default(0),
 
-    status: productStatusSchema.default('ACTIVE'),
+    status: z.enum(["ACTIVE", "INACTIVE"]).default("ACTIVE"),
 
-    price: z
-        .number()
-        .finite('Price must be a number')
-        .min(0, 'Price cannot be negative')
-        .max(1000000, 'Price cannot exceed 1,000,000')
-        .default(0),
+    price: priceField.refine((v) => v > 0, "Price must be greater than 0"),
 
-    compareAtPrice: z
-        .number()
-        .finite('Compare at price must be a number')
-        .min(0, 'Compare at price cannot be negative')
-        .max(1000000, 'Compare at price cannot exceed 1,000,000')
-        .nullable()
-        .optional(),
+    compareAtPrice: priceField.nullish().transform((v) => v ?? null),
 
-    brand: z
-        .string()
-        .trim()
-        .min(1, 'Brand is required')
-        .max(100, 'Brand cannot exceed 100 characters')
-        .default('')
-        .optional(),
+    brand: optionalText(100, "Brand"),
+    model: optionalText(100, "Model"),
 
-    model: z
-        .string()
-        .trim()
-        .min(1, 'Model is required')
-        .max(100, 'Model cannot exceed 100 characters')
-        .default('')
-        .optional(),
-
+    // Keys of files already uploaded to S3 (in display order)
     media: z
-        .array(productMediaSchema)
-        .max(10, 'Cannot have more than 10 media items')
-        .default([])
-});
+      .array(
+        z.object({
+          key: z.string().regex(MEDIA_KEY_REGEX, "Invalid media key"),
+        }),
+      )
+      .max(MAX_FILES, `Cannot have more than ${MAX_FILES} media items`)
+      .default([]),
+  })
+  .refine(
+    (data) => data.compareAtPrice === null || data.compareAtPrice > data.price,
+    {
+      message: "Compare-at price must be greater than the selling price",
+      path: ["compareAtPrice"],
+    },
+  );
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
-
-// Update Product
+// Update product
 export const updateProductSchema = z.object({
-    sku: z
-        .string()
-        .trim()
-        .min(1, 'SKU cannot be empty')
-        .max(100, 'SKU cannot exceed 100 characters')
-        .optional(),
-
-    name: z
-        .string()
-        .trim()
-        .min(10, 'Product name must be at least 10 characters')
-        .max(200, 'Product name cannot exceed 200 characters')
-        .optional(),
-
-    altName: z
-        .array(
-            z
-                .string()
-                .trim()
-                .min(1, 'Alternative name cannot be empty')
-                .max(200, 'Alternative name cannot exceed 200 characters')
-        )
-        .max(10, 'Cannot have more than 10 alternative names')
-        .optional(),
-
-    description: z
-        .string()
-        .trim()
-        .min(10, 'Product description must be at least 10 characters')
-        .max(1000, 'Product description cannot exceed 1000 characters')
-        .optional(),
-
-    stock: z
-        .number()
-        .int('Stock must be an integer')
-        .min(0, 'Stock cannot be negative')
-        .max(1000000, 'Stock cannot exceed 1,000,000')
-        .optional(),
-
-    status: productStatusSchema.optional(),
-
-    price: z
-        .number()
-        .finite('Price must be a number')
-        .min(0, 'Price cannot be negative')
-        .max(1000000, 'Price cannot exceed 1,000,000')
-        .optional(),
-
-    compareAtPrice: z
-        .number()
-        .finite('Compare at price must be a number')
-        .min(0, 'Compare at price cannot be negative')
-        .max(1000000, 'Compare at price cannot exceed 1,000,000')
-        .nullable()
-        .optional(),
-
-    brand: z
-        .string()
-        .trim()
-        .min(1, 'Brand cannot be empty')
-        .max(100, 'Brand cannot exceed 100 characters')
-        .optional(),
-
-    model: z
-        .string()
-        .trim()
-        .min(1, 'Model cannot be empty')
-        .max(100, 'Model cannot exceed 100 characters')
-        .optional(),
-
-    media: z
-        .array(productMediaSchema)
-        .max(10, 'Cannot have more than 10 media items')
-        .optional()
+  sku: z.string().trim().min(1).max(100).optional(),
+  name: z.string().trim().min(3).max(200).optional(),
+  altName: altNameField.optional(),
+  description: optionalText(1000, "Description").optional(),
+  stock: z.number().int().min(0).max(1_000_000).optional(),
+  status: productStatusSchema.optional(),
+  price: priceField.optional(),
+  compareAtPrice: priceField.nullable().optional(),
+  brand: optionalText(100, "Brand").optional(),
+  model: optionalText(100, "Model").optional(),
+  media: z
+    .array(
+      z.object({
+        key: z.string().regex(MEDIA_KEY_REGEX, "Invalid media key"),
+      }),
+    )
+    .max(MAX_FILES)
+    .optional(),
 });
-
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;

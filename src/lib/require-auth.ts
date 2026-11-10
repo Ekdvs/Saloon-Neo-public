@@ -14,7 +14,6 @@ export const requireAuth = async (
     request: NextRequest,
 ): Promise<RequireAuthResult> => {
     const auth = await getCurrentUser(request);
-
     // Authentication successful
     if (auth.user) {
         return {

@@ -1,8 +1,8 @@
-import { Prisma } from "@/generated/prisma/client";
+import { Prisma, ProductStatus } from "@/generated/prisma/client";
 import { errorResponse, successResponse } from "@/lib/api-response";
 import prisma from "@/lib/prisma";
 import { isPrivileged } from "@/lib/require-auth";
-import { productIdSchema, UpdateProductInput, updateProductSchema } from "@/lib/validations/product.validation";
+import { productIdSchema, updateProductSchema } from "@/lib/validations/product.validation";
 import { NextRequest } from "next/server";
 
 
@@ -14,10 +14,10 @@ interface RouteContext {
 }
 //get product by id
 export const GET = async (request: NextRequest, { params }: RouteContext) => {
-    try{
+    try {
         const { id } = await params;
         //console.log("Fetching product with ID:", id);
-        
+
         const validation = productIdSchema.safeParse({ id });
 
         if (!validation.success) {
@@ -32,12 +32,12 @@ export const GET = async (request: NextRequest, { params }: RouteContext) => {
         const productId = validation.data.id;
 
         const product = await prisma.product.findUnique({
-            
+
             where: {
                 id: productId
             },
-            include:{media:true},
-        }); 
+            include: { media: true },
+        });
 
         if (!product) {
             return errorResponse(
@@ -47,7 +47,7 @@ export const GET = async (request: NextRequest, { params }: RouteContext) => {
             );
         }
 
-        if (product.status === "DELETED") {
+        if (product.status === ProductStatus.DELETED) {
             return errorResponse(
                 "Product has been deleted",
                 null,
@@ -55,11 +55,24 @@ export const GET = async (request: NextRequest, { params }: RouteContext) => {
             );
         }
 
-        if (product.status === "INACTIVE") {
-            return errorResponse(
-                "Product is inactive",
-                null,
-                403
+        if (product.status === ProductStatus.INACTIVE) {
+            const { authorized, response } = await isPrivileged(
+                request,
+                ["product:read"]
+            );
+
+            if (!authorized) {
+                return errorResponse(
+                    "Product is inactive",
+                    response,
+                    403
+                );
+            }
+
+            return successResponse(
+                "Product retrieved successfully",
+                product,
+                200
             );
         }
 
@@ -81,8 +94,8 @@ export const GET = async (request: NextRequest, { params }: RouteContext) => {
 }
 
 //delete product by id
-export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
-    try{
+export const DELETE = async (request: NextRequest, { params }: RouteContext) => {
+    try {
         const { authorized, response } = await isPrivileged(request, ['product:delete']);
 
         if (!authorized) {
@@ -91,7 +104,7 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
 
         const { id } = await params;
 
-        
+
         const validation = productIdSchema.safeParse({ id });
 
         if (!validation.success) {
@@ -108,7 +121,7 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
             where: {
                 id: productId
             },
-            
+
         });
 
         if (!product) {
@@ -119,7 +132,7 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
             );
         }
 
-        if (product.status === "DELETED") {
+        if (product.status === ProductStatus.DELETED) {
             return errorResponse(
                 "Product has already been deleted",
                 null,
@@ -133,7 +146,7 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
                 id: productId
             },
             data: {
-                status: "DELETED"
+                status: ProductStatus.DELETED
             }
         });
 
@@ -143,7 +156,7 @@ export const DELETE = async (request:NextRequest, { params }: RouteContext) => {
             200
         );
 
-    }catch(error){
+    } catch (error) {
         console.error("Error in Delete /api/product/[id]:", error);
         return errorResponse(
             "An unexpected error occurred",
@@ -227,7 +240,7 @@ export const PUT = async (
         }
 
         // Do not allow updating deleted products
-        if (existingProduct.status === "DELETED") {
+        if (existingProduct.status === ProductStatus.DELETED) {
             return errorResponse(
                 "Cannot update a deleted product",
                 null,
@@ -265,7 +278,7 @@ export const PUT = async (
 
         // Stock = 0 → automatically INACTIVE
         if (data.stock === 0) {
-            updateData.status = "INACTIVE";
+            updateData.status = ProductStatus.INACTIVE;
         }
 
         // Update media only when media is provided
