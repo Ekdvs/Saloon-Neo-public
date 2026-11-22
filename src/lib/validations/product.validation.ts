@@ -107,6 +107,14 @@ export const createProductSchema = z
 
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 
+const mediaKeyItem = z.object({
+  key: z.string().regex(MEDIA_KEY_REGEX, "Invalid media key"),
+});
+
+const existingMediaItem = z.object({
+  id: z.string().uuid("Invalid media ID"),
+});
+
 // Update product
 export const updateProductSchema = z.object({
   sku: z.string().trim().min(1).max(100).optional(),
@@ -114,18 +122,16 @@ export const updateProductSchema = z.object({
   altName: altNameField.optional(),
   description: optionalText(1000, "Description").optional(),
   stock: z.number().int().min(0).max(1_000_000).optional(),
-  status: productStatusSchema.optional(),
-  price: priceField.optional(),
+  // DELETED must only happen through the DELETE endpoint
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+  price: priceField.refine((v) => v > 0, "Price must be greater than 0").optional(),
   compareAtPrice: priceField.nullable().optional(),
   brand: optionalText(100, "Brand").optional(),
   model: optionalText(100, "Model").optional(),
+  // Ordered list: existing items by `id`, new uploads by `key`
   media: z
-    .array(
-      z.object({
-        key: z.string().regex(MEDIA_KEY_REGEX, "Invalid media key"),
-      }),
-    )
-    .max(MAX_FILES)
+    .array(z.union([existingMediaItem, mediaKeyItem]))
+    .max(MAX_FILES, `Cannot have more than ${MAX_FILES} media items`)
     .optional(),
 });
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;

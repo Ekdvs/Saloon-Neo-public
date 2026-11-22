@@ -9,7 +9,6 @@ import {
 import { paginationSchema } from "@/lib/validations/pagination.validation";
 import {
   deleteManyFromS3,
-  getPublicUrl,
   headMedia,
 } from "@/lib/s3";
 import {
@@ -59,6 +58,7 @@ export const POST = async (request: NextRequest) => {
 
     const validation = createProductSchema.safeParse(body);
     if (!validation.success) {
+      console.error("Validation failed for product creation:", validation.error);
       return errorResponse(
         "Validation failed",
         validation.error.flatten().fieldErrors,
@@ -115,7 +115,7 @@ export const POST = async (request: NextRequest) => {
         ...productData,
         media: {
           create: verifiedMedia.map((item, index) => ({
-            url: getPublicUrl(item.key),
+            url: item.key,
             type: item.type,
             sortOrder: index,
           })),
